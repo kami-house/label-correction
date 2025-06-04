@@ -95,95 +95,58 @@
         tttBlocks.push(currentTTT)
         console.log(tttBlocks)
 
-// Alteração proposta chatgpt
-        
-// Agrupar blocos por nota
-const groupedNotes = [];
-let note = [];
+        const promises = tttBlocks.map(ttt => {
+            return fetchWithRetry('https://mxmvvlqa32.execute-api.sa-east-1.amazonaws.com/prod/backend/fixlabel', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ ttt })
+            })
+            .then(response => response.json())
+            .then(data => JSON.parse(data.body).processed_text)
+            .catch(error => {
+                console.log(error)
+                return 'Erro, chame o Vinicius';
+            });
+        });
 
-tttBlocks.forEach(block => {
-    if (block.includes('^XA~TA000~JSN')) {
-        if (note.length > 0) {
-            groupedNotes.push(note);
-        }
-        note = [block];
-    } else {
-        note.push(block);
+        Promise.all(promises).then(processedTexts => {
+            zpl = processedTexts.join('\n\n');
+            outputTextArea.value = zpl;
+            const formData = new FormData();
+            const blob = new Blob([zpl], { type: 'text/plain' });
+            formData.append('file', blob);
+
+            fetch('https://api.labelary.com/v1/printers/8dpmm/labels/4x6/', {
+                method: 'POST',
+                headers: {
+                    'Accept': 'application/pdf'
+                },
+                body: formData
+            })
+            .then(response => {
+                if (response.ok) {
+                    return response.blob();
+                } else {
+                    throw new Error('Network response was not ok');
+                }
+            })
+            .then(blob => {
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.style.display = 'none';
+                a.href = url;
+                a.download = 'label.pdf';
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+            })
+            .catch(error => {
+                console.error('Error:', error);
+            });
+        }) 
     }
-});
-
-// Adiciona a última nota
-if (note.length > 0) {
-    groupedNotes.push(note);
-}
-
-// Apenas as duas primeiras páginas de cada nota
-const filteredBlocks = groupedNotes.flatMap(notePages => notePages.slice(0, 2));
-
-// 🧪 LOG de verificação
-console.log("Blocos filtrados para envio à API:", filteredBlocks);
-
-// Requisição para API de correção
-const promises = filteredBlocks.map(ttt => {
-    return fetchWithRetry('https://mxmvvlqa32.execute-api.sa-east-1.amazonaws.com/prod/backend/fixlabel', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ ttt })
-    })
-    .then(response => response.json())
-    .then(data => {
-        const processed = JSON.parse(data.body).processed_text;
-        if (!processed.includes('^XA') || !processed.includes('^XZ')) {
-            throw new Error("ZPL inválido retornado da API.");
-        }
-        return processed;
-    })
-    .catch(error => {
-        console.error("Erro na API de correção:", error);
-        return '^XA\nErro ao processar etiqueta\n^XZ';
-    });
-});
-
-// Enviar para Labelary
-Promise.all(promises).then(processedTexts => {
-    const zpl = processedTexts.join('\n\n');
-    document.getElementById('outputText').value = zpl;
-
-    const blob = new Blob([zpl], { type: 'text/plain' });
-    const formData = new FormData();
-    formData.append('file', blob);
-
-    // Envio para Labelary para gerar PDF
-    fetch('https://api.labelary.com/v1/printers/8dpmm/labels/4x6/', {
-        method: 'POST',
-        headers: {
-            'Accept': 'application/pdf'
-        },
-        body: formData
-    })
-    .then(response => {
-        if (!response.ok) throw new Error('Erro ao gerar PDF com Labelary.');
-        return response.blob();
-    })
-    .then(blob => {
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'label.pdf';
-        document.body.appendChild(a);
-        a.click();
-        window.URL.revokeObjectURL(url);
-    })
-    .catch(error => {
-        console.error('Erro ao gerar ou baixar o PDF:', error);
-        alert("Erro ao gerar o PDF. Veja o console para detalhes.");
-    });
-});
-
-// Alteração proposta chatgpt
-        
 </script>
 
 </body>
