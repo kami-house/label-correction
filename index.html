@@ -58,44 +58,65 @@
                 return response;
             } catch (error) {
                 if (i < retries) {
-                    // Wait for the backoff time before retrying
                     await new Promise(resolve => setTimeout(resolve, backoff));
-                    backoff *= 2; // Increase backoff time exponentially
+                    backoff *= 2;
                 } else {
-                    // After all retries fail, throw the error
                     throw error;
                 }
             }
         }
     };
+
     function processText() {
         const inputText = document.getElementById('inputText').value;
-        const notification = document.getElementById('notification');
         const outputTextArea = document.getElementById('outputText');
         outputTextArea.value = 'Carregando...';
 
-        // Split the input text by lines
         const lines = inputText.split('\n');
         let currentTTT = '';
         const tttBlocks = [];
-        let capturing = false;
 
         lines.forEach(line => {
-            const newTTT = line.includes('^XA~TA000~JSN') && line.includes('^GFA') ? line.split('^XA~TA000~JSN')[0] : line
+            const newTTT = line.includes('^XA~TA000~JSN') && line.includes('^GFA')
+                ? line.split('^XA~TA000~JSN')[0]
+                : line;
             currentTTT += newTTT + '\n';
+
             if (line.includes('^XA~TA000~JSN') && line.includes('^GFA')) {
-                // console.log('inside if', '^XA~TA000~JSN' + line.split('^XA~TA000~JSN')[1])
-                // console.log('currentTTT', currentTTT)
-                if (currentTTT && currentTTT !== '\n') {
+                if (currentTTT && currentTTT.trim() !== '') {
                     tttBlocks.push(currentTTT);
                 }
-                currentTTT = '^XA~TA000~JSN' + line.split('^XA~TA000~JSN')[1]  + '\n';
+                currentTTT = '^XA~TA000~JSN' + line.split('^XA~TA000~JSN')[1] + '\n';
             }
         });
-        tttBlocks.push(currentTTT)
-        console.log(tttBlocks)
 
-        const promises = tttBlocks.map(ttt => {
+        if (currentTTT && currentTTT.trim() !== '') {
+            tttBlocks.push(currentTTT);
+        }
+
+        // Agrupar blocos por nota (assumindo que cada nota começa com ^XA)
+        const groupedNotes = [];
+        let currentNote = [];
+
+        tttBlocks.forEach(block => {
+            if (block.includes('^XA')) {
+                if (currentNote.length > 0) {
+                    groupedNotes.push(currentNote);
+                }
+                currentNote = [block];
+            } else {
+                currentNote.push(block);
+            }
+        });
+
+        if (currentNote.length > 0) {
+            groupedNotes.push(currentNote);
+        }
+
+        // Pegar apenas as duas primeiras páginas de cada nota
+        const filteredBlocks = groupedNotes.flatMap(note => note.slice(0, 2));
+
+        const promises = filteredBlocks.map(ttt => {
             return fetchWithRetry('https://mxmvvlqa32.execute-api.sa-east-1.amazonaws.com/prod/backend/fixlabel', {
                 method: 'POST',
                 headers: {
@@ -106,14 +127,15 @@
             .then(response => response.json())
             .then(data => JSON.parse(data.body).processed_text)
             .catch(error => {
-                console.log(error)
-                return 'Erro, chame o Vinicius';
+                console.error('Erro ao processar bloco:', error);
+                return '^XA\nErro ao processar etiqueta\n^XZ';
             });
         });
 
         Promise.all(promises).then(processedTexts => {
-            zpl = processedTexts.join('\n\n');
+            const zpl = processedTexts.join('\n\n');
             outputTextArea.value = zpl;
+
             const formData = new FormData();
             const blob = new Blob([zpl], { type: 'text/plain' });
             formData.append('file', blob);
@@ -126,16 +148,14 @@
                 body: formData
             })
             .then(response => {
-                if (response.ok) {
-                    return response.blob();
-                } else {
-                    throw new Error('Network response was not ok');
+                if (!response.ok) {
+                    throw new Error('Erro ao gerar o PDF com Labelary.');
                 }
+                return response.blob();
             })
             .then(blob => {
                 const url = window.URL.createObjectURL(blob);
                 const a = document.createElement('a');
-                a.style.display = 'none';
                 a.href = url;
                 a.download = 'label.pdf';
                 document.body.appendChild(a);
@@ -143,9 +163,10 @@
                 window.URL.revokeObjectURL(url);
             })
             .catch(error => {
-                console.error('Error:', error);
+                console.error('Erro ao gerar ou baixar o PDF:', error);
+                alert('Erro ao gerar o PDF. Verifique o console para detalhes.');
             });
-        }) 
+        });
     }
 </script>
 
