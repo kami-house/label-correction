@@ -1,0 +1,153 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Corrige NF</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+        }
+        .container {
+            display: flex;
+            gap: 20px;
+        }
+        textarea {
+            width: 300px;
+            height: 400px;
+            padding: 10px;
+            font-size: 16px;
+        }
+        button {
+            display: block;
+            margin-top: 10px;
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div>
+        <h3>Texto ERRADO da Bling</h3>
+        <textarea id="inputText"></textarea>
+        <button onclick="processText()">CORRIGIR</button>
+    </div>
+    <div>
+        <h3>Texto corrigido</h3>
+        <textarea id="outputText" readonly></textarea>
+    </div>
+</div>
+
+<script>
+    const fetchWithRetry = async (url, options, retries = 5, backoff = 300) => {
+        for (let i = 0; i <= retries; i++) {
+            try {
+                const response = await fetch(url, options);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                return response;
+            } catch (error) {
+                if (i < retries) {
+                    // Wait for the backoff time before retrying
+                    await new Promise(resolve => setTimeout(resolve, backoff));
+                    backoff *= 2; // Increase backoff time exponentially
+                } else {
+                    // After all retries fail, throw the error
+                    throw error;
+                }
+            }
+        }
+    };
+    function processText() {
+        const inputText = document.getElementById('inputText').value;
+        const notification = document.getElementById('notification');
+        const outputTextArea = document.getElementById('outputText');
+        outputTextArea.value = 'Carregando...';
+
+        // Split the input text by lines
+        const lines = inputText.split('\n');
+        let currentTTT = '';
+        const tttBlocks = [];
+        let capturing = false;
+
+        lines.forEach(line => {
+            const newTTT = line.includes('^XA~TA000~JSN') && line.includes('^GFA') ? line.split('^XA~TA000~JSN')[0] : line
+            currentTTT += newTTT + '\n';
+            if (line.includes('^XA~TA000~JSN') && line.includes('^GFA')) {
+                // console.log('inside if', '^XA~TA000~JSN' + line.split('^XA~TA000~JSN')[1])
+                // console.log('currentTTT', currentTTT)
+                if (currentTTT && currentTTT !== '\n') {
+                    tttBlocks.push(currentTTT);
+                }
+                currentTTT = '^XA~TA000~JSN' + line.split('^XA~TA000~JSN')[1]  + '\n';
+            }
+        });
+        tttBlocks.push(currentTTT)
+        console.log(tttBlocks)
+
+        const promises = tttBlocks.map(ttt => {
+            return fetchWithRetry('https://mxmvvlqa32.execute-api.sa-east-1.amazonaws.com/prod/backend/fixlabel', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ ttt })
+            })
+            .then(response => response.json())
+            .then(data => JSON.parse(data.body).processed_text)
+            .catch(error => {
+                console.log(error)
+                return 'Erro, chame o Vinicius';
+            });
+        });
+
+        Promise.all(promises).then(processedTexts => {
+            zpl = processedTexts.join('\n\n');
+            outputTextArea.value = zpl;
+            const formData = new FormData();
+            const blob = new Blob([zpl], { type: 'text/plain' });
+            formData.append('file', blob);
+
+            fetch('https://api.labelary.com/v1/printers/8dpmm/labels/4x6/', {
+                method: 'POST',
+                headers: {
+                    'Accept': 'application/pdf'
+                },
+                body: formData
+            })
+            .then(response => {
+                if (response.ok) {
+                    return response.blob();
+                } else {
+                    throw new Error('Network response was not ok');
+                }
+            })
+            .then(blob => {
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.style.display = 'none';
+                a.href = url;
+                a.download = 'label.pdf';
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+            })
+            .catch(error => {
+                console.error('Error:', error);
+            });
+        }) 
+    }
+</script>
+
+</body>
+</html>
