@@ -48,126 +48,120 @@
 </div>
 
 <script>
-    const fetchWithRetry = async (url, options, retries = 5, backoff = 300) => {
-        for (let i = 0; i <= retries; i++) {
-            try {
-                const response = await fetch(url, options);
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
-                return response;
-            } catch (error) {
-                if (i < retries) {
-                    await new Promise(resolve => setTimeout(resolve, backoff));
-                    backoff *= 2;
-                } else {
-                    throw error;
-                }
-            }
-        }
-    };
-
-    function processText() {
-        const inputText = document.getElementById('inputText').value;
-        const outputTextArea = document.getElementById('outputText');
-        outputTextArea.value = 'Carregando...';
-
-        const lines = inputText.split('\n');
-        let currentTTT = '';
-        const tttBlocks = [];
-
-        lines.forEach(line => {
-            const newTTT = line.includes('^XA~TA000~JSN') && line.includes('^GFA')
-                ? line.split('^XA~TA000~JSN')[0]
-                : line;
-            currentTTT += newTTT + '\n';
-
-            if (line.includes('^XA~TA000~JSN') && line.includes('^GFA')) {
-                if (currentTTT && currentTTT.trim() !== '') {
-                    tttBlocks.push(currentTTT);
-                }
-                currentTTT = '^XA~TA000~JSN' + line.split('^XA~TA000~JSN')[1] + '\n';
-            }
-        });
-
-        if (currentTTT && currentTTT.trim() !== '') {
-            tttBlocks.push(currentTTT);
-        }
-
-        // Agrupar blocos por nota (assumindo que cada nota começa com ^XA)
-        const groupedNotes = [];
-        let currentNote = [];
-
-        tttBlocks.forEach(block => {
-            if (block.includes('^XA')) {
-                if (currentNote.length > 0) {
-                    groupedNotes.push(currentNote);
-                }
-                currentNote = [block];
+   const fetchWithRetry = async (url, options, retries = 5, backoff = 300) => {
+    for (let i = 0; i <= retries; i++) {
+        try {
+            const response = await fetch(url, options);
+            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+            return response;
+        } catch (error) {
+            if (i < retries) {
+                await new Promise(resolve => setTimeout(resolve, backoff));
+                backoff *= 2;
             } else {
-                currentNote.push(block);
+                throw error;
             }
-        });
-
-        if (currentNote.length > 0) {
-            groupedNotes.push(currentNote);
         }
-
-        // Pegar apenas as duas primeiras páginas de cada nota
-        const filteredBlocks = groupedNotes.flatMap(note => note.slice(0, 2));
-
-        const promises = filteredBlocks.map(ttt => {
-            return fetchWithRetry('https://mxmvvlqa32.execute-api.sa-east-1.amazonaws.com/prod/backend/fixlabel', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ ttt })
-            })
-            .then(response => response.json())
-            .then(data => JSON.parse(data.body).processed_text)
-            .catch(error => {
-                console.error('Erro ao processar bloco:', error);
-                return '^XA\nErro ao processar etiqueta\n^XZ';
-            });
-        });
-
-        Promise.all(promises).then(processedTexts => {
-            const zpl = processedTexts.join('\n\n');
-            outputTextArea.value = zpl;
-
-            const formData = new FormData();
-            const blob = new Blob([zpl], { type: 'text/plain' });
-            formData.append('file', blob);
-
-            fetch('https://api.labelary.com/v1/printers/8dpmm/labels/4x6/', {
-                method: 'POST',
-                headers: {
-                    'Accept': 'application/pdf'
-                },
-                body: formData
-            })
-            .then(response => {
-                if (!response.ok) {
-                    throw new Error('Erro ao gerar o PDF com Labelary.');
-                }
-                return response.blob();
-            })
-            .then(blob => {
-                const url = window.URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = 'label.pdf';
-                document.body.appendChild(a);
-                a.click();
-                window.URL.revokeObjectURL(url);
-            })
-            .catch(error => {
-                console.error('Erro ao gerar ou baixar o PDF:', error);
-                alert('Erro ao gerar o PDF. Verifique o console para detalhes.');
-            });
-        });
     }
+};
+
+function processText() {
+    const inputText = document.getElementById('inputText').value;
+    const outputTextArea = document.getElementById('outputText');
+    outputTextArea.value = 'Carregando...';
+
+    const lines = inputText.split('\n');
+    let currentTTT = '';
+    const tttBlocks = [];
+
+    lines.forEach(line => {
+        const newTTT = line.includes('^XA~TA000~JSN') && line.includes('^GFA')
+            ? line.split('^XA~TA000~JSN')[0]
+            : line;
+        currentTTT += newTTT + '\n';
+
+        if (line.includes('^XA~TA000~JSN') && line.includes('^GFA')) {
+            if (currentTTT && currentTTT.trim() !== '') {
+                tttBlocks.push(currentTTT);
+            }
+            currentTTT = '^XA~TA000~JSN' + line.split('^XA~TA000~JSN')[1] + '\n';
+        }
+    });
+
+    if (currentTTT && currentTTT.trim() !== '') {
+        tttBlocks.push(currentTTT);
+    }
+
+    // Agrupar por nota e manter só as duas primeiras páginas
+    const groupedNotes = [];
+    let currentNote = [];
+
+    tttBlocks.forEach(block => {
+        if (block.includes('^XA')) {
+            if (currentNote.length > 0) groupedNotes.push(currentNote);
+            currentNote = [block];
+        } else {
+            currentNote.push(block);
+        }
+    });
+    if (currentNote.length > 0) groupedNotes.push(currentNote);
+
+    const filteredBlocks = groupedNotes.flatMap(note => note.slice(0, 2));
+
+    const promises = filteredBlocks.map((ttt, index) => {
+        return fetchWithRetry('https://mxmvvlqa32.execute-api.sa-east-1.amazonaws.com/prod/backend/fixlabel', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ ttt })
+        })
+        .then(response => response.json())
+        .then(data => {
+            const zpl = JSON.parse(data.body).processed_text;
+            outputTextArea.value += `\n\nEtiqueta ${index + 1} corrigida:\n${zpl}`;
+            return gerarPDFIndividual(zpl, index + 1);
+        })
+        .catch(error => {
+            console.error("Erro ao processar:", error);
+            return null;
+        });
+    });
+
+    Promise.all(promises).then(() => {
+        alert("Todas as etiquetas foram processadas.");
+    });
+}
+
+function gerarPDFIndividual(zpl, etiquetaNum) {
+    const formData = new FormData();
+    const blob = new Blob([zpl], { type: 'text/plain' });
+    formData.append('file', blob);
+
+    return fetch('https://api.labelary.com/v1/printers/8dpmm/labels/4x6/', {
+        method: 'POST',
+        headers: {
+            'Accept': 'application/pdf'
+        },
+        body: formData
+    })
+    .then(response => {
+        if (!response.ok) throw new Error('Erro ao gerar PDF com Labelary.');
+        return response.blob();
+    })
+    .then(blob => {
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `etiqueta_${etiquetaNum}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+    })
+    .catch(error => {
+        console.error("Erro ao gerar PDF individual:", error);
+    });
+}
 </script>
 
 </body>
