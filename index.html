@@ -95,21 +95,48 @@
         tttBlocks.push(currentTTT)
         console.log(tttBlocks)
 
-        const promises = tttBlocks.map(ttt => {
-            return fetchWithRetry('https://mxmvvlqa32.execute-api.sa-east-1.amazonaws.com/prod/backend/fixlabel', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ ttt })
-            })
-            .then(response => response.json())
-            .then(data => JSON.parse(data.body).processed_text)
-            .catch(error => {
-                console.log(error)
-                return 'Erro, chame o Vinicius';
-            });
-        });
+// Alteração proposta chatgpt
+// 1. Agrupar os blocos por nota (assumindo que cada nota inicia com ^XA~TA000~JSN)
+const groupedNotes = [];
+let note = [];
+
+tttBlocks.forEach(block => {
+    if (block.includes('^XA~TA000~JSN')) {
+        if (note.length > 0) {
+            groupedNotes.push(note);
+        }
+        note = [block];
+    } else {
+        note.push(block);
+    }
+});
+
+// Adiciona a última nota
+if (note.length > 0) {
+    groupedNotes.push(note);
+}
+
+// 2. Manter apenas as duas primeiras páginas de cada nota
+const filteredBlocks = groupedNotes.flatMap(notePages => notePages.slice(0, 2));
+
+// 3. Enviar para a API normalmente
+const promises = filteredBlocks.map(ttt => {
+    return fetchWithRetry('https://mxmvvlqa32.execute-api.sa-east-1.amazonaws.com/prod/backend/fixlabel', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ ttt })
+    })
+    .then(response => response.json())
+    .then(data => JSON.parse(data.body).processed_text)
+    .catch(error => {
+        console.log(error)
+        return 'Erro, chame o Vinicius';
+    });
+});
+
+// Alteração proposta chatgpt
 
         Promise.all(promises).then(processedTexts => {
             zpl = processedTexts.join('\n\n');
